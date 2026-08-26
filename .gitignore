@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native builds
+android/app/build/
+android/build/
+android/.gradle/
+android/app/.cxx/
+*.apk
+*.aab
+*.keystore
+
+# macOS & OS files
+.DS_Store
+*.pem
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Debug logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log

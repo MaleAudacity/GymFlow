@@ -43,6 +43,7 @@ import { Member } from '../types';
 import {
   Gamepad2,
   HelpCircle,
+  Cloud,
 } from 'lucide-react-native';
 import {
   neoShadow,
@@ -74,6 +75,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
     currentDateStr,
     subscription,
     showPaywall,
+    openAuthModal,
+    isCloudAuthenticated,
     refreshAll,
     lockApp,
     hasOwnerPin,
@@ -195,6 +198,29 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
           {/* Right Header Buttons */}
           <View style={styles.headerRight}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={openAuthModal}
+              style={[
+                styles.guideHeaderBtn,
+                {
+                  backgroundColor: isCloudAuthenticated ? '#DCFCE7' : '#EEF2FF',
+                  borderColor: theme.border,
+                },
+                neoShadow(1, theme.border),
+              ]}
+            >
+              <Cloud size={13} color={isCloudAuthenticated ? '#15803D' : theme.primary} strokeWidth={2.5} />
+              <Text
+                style={[
+                  styles.guideHeaderBtnText,
+                  { color: isCloudAuthenticated ? '#15803D' : theme.primary, fontFamily: FONT_BLACK },
+                ]}
+              >
+                {isCloudAuthenticated ? 'SYNCED' : 'CLOUD'}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={() => setTutorialVisible(true)}

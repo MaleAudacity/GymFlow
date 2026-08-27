@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import { User } from '@supabase/supabase-js';
 import {
   GymSettings,
   Member,
@@ -22,10 +23,12 @@ import {
   verifyAndApplyLicenseKey,
   setOwnerPin as dbSetOwnerPin,
   verifyOwnerPin as dbVerifyOwnerPin,
-  seedDemoDataIfEmpty,
 } from '../database/db';
 import { getTheme, defaultTheme } from '../theme';
 import { SubscriptionPaywallModal } from '../components/SubscriptionPaywallModal';
+import { AuthModal } from '../components/AuthModal';
+import { getActiveUser, getSupabaseClient } from '../services/supabase';
+import { backupToSupabase, restoreFromSupabase, getLastSyncTime, SyncResult } from '../services/syncService';
 
 import {
   getTranslation,
@@ -35,8 +38,6 @@ import {
   SUPPORTED_LANGUAGES,
   SUPPORTED_CURRENCIES,
   SUPPORTED_COUNTRIES,
-  getCountryByCode,
-  getCurrencyByCode,
 } from '../i18n';
 
 const getFormattedDate = (lang: LanguageCode = 'en') =>
@@ -74,11 +75,19 @@ interface AppContextType {
   language: LanguageCode;
   currency: string;
   country: string;
+  user: User | null;
+  isCloudAuthenticated: boolean;
+  authModalVisible: boolean;
+  lastSyncedAt: string | null;
   t: (key: string, params?: Record<string, string | number>) => string;
   formatPrice: (amount: number) => string;
   formatDateStr: (date: string | number | Date) => string;
   showPaywall: () => void;
   hidePaywall: () => void;
+  openAuthModal: () => void;
+  closeAuthModal: () => void;
+  checkAuthSession: () => Promise<void>;
+  syncWithCloud: () => Promise<SyncResult>;
   subscribeToPlan: (months?: number, plan?: 'monthly' | 'yearly') => Promise<void>;
   applyLicenseKey: (key: string) => Promise<{ success: boolean; message: string }>;
   refreshAll: () => Promise<void>;
@@ -146,11 +155,19 @@ const AppContext = createContext<AppContextType>({
   language: 'en',
   currency: 'INR',
   country: 'IN',
+  user: null,
+  isCloudAuthenticated: false,
+  authModalVisible: false,
+  lastSyncedAt: null,
   t: (key: string) => key,
   formatPrice: (amount: number) => `₹${amount}`,
   formatDateStr: (date) => String(date),
   showPaywall: () => {},
   hidePaywall: () => {},
+  openAuthModal: () => {},
+  closeAuthModal: () => {},
+  checkAuthSession: async () => {},
+  syncWithCloud: async () => ({ success: false, message: '' }),
   subscribeToPlan: async () => {},
   applyLicenseKey: async () => ({ success: false, message: '' }),
   refreshAll: async () => {},
@@ -177,7 +194,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentDateStr, setCurrentDateStr] = useState<string>(getFormattedDate());
   const [subscription, setSubscription] = useState<SubscriptionInfo>(defaultSubscription);
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [authModalVisible, setAuthModalVisible] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const lastDayRef = useRef<string>(new Date().toDateString());
 
   const activeLang: LanguageCode = (settings.language as LanguageCode) || 'en';
@@ -205,6 +225,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [activeLang]
   );
 
+  const checkAuthSession = useCallback(async () => {
+    try {
+      const activeUser = await getActiveUser();
+      setUser(activeUser);
+      const syncTime = await getLastSyncTime();
+      setLastSyncedAt(syncTime);
+    } catch (err) {
+      console.warn('Could not check Supabase auth session:', err);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
       await initDatabase();
@@ -229,6 +260,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentDateStr(getFormattedDate((currentSettings.language as LanguageCode) || 'en'));
       lastDayRef.current = new Date().toDateString();
 
+      await checkAuthSession();
+
       if (currentSettings.owner_pin && currentSettings.onboarding_completed === 1) {
         setIsLocked(false);
       }
@@ -237,7 +270,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       setIsReady(true);
     }
-  }, []);
+  }, [checkAuthSession]);
 
   useEffect(() => {
     loadData();
@@ -270,124 +303,150 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [loadData, activeLang]);
 
-  const refreshAll = async () => {
-    await loadData();
-  };
-
-  const refreshStats = async () => {
+  const refreshStats = useCallback(async () => {
     const s = await getDashboardStats();
     setStats(s);
-  };
+  }, []);
 
-  const refreshMembers = async () => {
+  const refreshMembers = useCallback(async () => {
     const m = await getAllMembers();
     setMembers(m);
     await refreshStats();
-  };
+  }, [refreshStats]);
 
-  const refreshPlans = async () => {
+  const refreshPlans = useCallback(async () => {
     const p = await getAllPlans();
     setPlans(p);
-  };
+  }, []);
 
-  const refreshAttendance = async () => {
+  const refreshAttendance = useCallback(async () => {
     const a = await getTodayAttendance();
     setTodayAttendance(a);
     await refreshStats();
-  };
+  }, [refreshStats]);
 
-  const refreshSubscription = async () => {
-    const s = await getSubscriptionInfo();
-    setSubscription(s);
-  };
+  const refreshSubscription = useCallback(async () => {
+    const sub = await getSubscriptionInfo();
+    setSubscription(sub);
+  }, []);
 
-  const subscribeToPlan = async (months: number = 1, plan: 'monthly' | 'yearly' = 'monthly') => {
-    const price = plan === 'yearly' ? (activeCurrency === 'INR' ? 2499 : 29) : (activeCurrency === 'INR' ? 299 : 3.99);
-    const s = await activateSubscription(months, plan, price, activeCurrency);
-    setSubscription(s);
-    const updatedSettings = await getGymSettings();
-    setSettings(updatedSettings);
-  };
+  const refreshAll = useCallback(async () => {
+    await Promise.all([
+      refreshStats(),
+      refreshMembers(),
+      refreshPlans(),
+      refreshAttendance(),
+      refreshSubscription(),
+      checkAuthSession(),
+    ]);
+  }, [refreshStats, refreshMembers, refreshPlans, refreshAttendance, refreshSubscription, checkAuthSession]);
 
-  const applyLicenseKey = async (key: string): Promise<{ success: boolean; message: string }> => {
-    const res = await verifyAndApplyLicenseKey(key);
-    if (res.success) {
-      const s = await getSubscriptionInfo();
-      setSubscription(s);
-      const updatedSettings = await getGymSettings();
-      setSettings(updatedSettings);
+  const syncWithCloud = useCallback(async (): Promise<SyncResult> => {
+    const res = await backupToSupabase();
+    if (res.success && res.syncedAt) {
+      setLastSyncedAt(res.syncedAt);
     }
     return res;
-  };
+  }, []);
 
-  const showPaywall = () => setPaywallVisible(true);
-  const hidePaywall = () => setPaywallVisible(false);
+  const handleUpdateSettings = useCallback(
+    async (newSettings: Partial<GymSettings>) => {
+      await updateGymSettings(newSettings);
+      const s = await getGymSettings();
+      setSettings(s);
+      if (newSettings.theme_color) {
+        setTheme(getTheme(newSettings.theme_color));
+      }
+    },
+    []
+  );
 
-  const handleUpdateSettings = async (newSettings: Partial<GymSettings>) => {
-    await updateGymSettings(newSettings);
-    const updated = await getGymSettings();
-    setSettings(updated);
-    if (newSettings.theme_color) {
-      setTheme(getTheme(newSettings.theme_color));
-    }
-    if (newSettings.language) {
-      setCurrentDateStr(getFormattedDate(newSettings.language));
-    }
-    await refreshSubscription();
-  };
-
-  const handleSetOwnerPin = async (pin: string | null) => {
+  const handleSetOwnerPin = useCallback(async (pin: string | null) => {
     await dbSetOwnerPin(pin);
-    await handleUpdateSettings({ owner_pin: pin });
-  };
+    const s = await getGymSettings();
+    setSettings(s);
+  }, []);
 
-  const unlockApp = async (pin: string): Promise<boolean> => {
-    const isValid = await dbVerifyOwnerPin(pin);
-    if (isValid) {
+  const unlockApp = useCallback(async (pin: string): Promise<boolean> => {
+    const valid = await dbVerifyOwnerPin(pin);
+    if (valid) {
       setIsLocked(false);
       return true;
     }
     return false;
-  };
+  }, []);
 
-  const lockApp = () => {
+  const lockApp = useCallback(() => {
     if (settings.owner_pin) {
       setIsLocked(true);
     }
-  };
+  }, [settings.owner_pin]);
 
-  const completeOnboarding = async (setupData: {
-    gymName: string;
-    themeColor: string;
-    startHour: string;
-    endHour: string;
-    ownerPin?: string;
-    language?: LanguageCode;
-    currency?: string;
-    country?: string;
-  }) => {
-    await updateGymSettings({
-      gym_name: setupData.gymName,
-      theme_color: setupData.themeColor,
-      working_hours_start: setupData.startHour,
-      working_hours_end: setupData.endHour,
-      owner_pin: setupData.ownerPin || null,
-      language: setupData.language || 'en',
-      currency: setupData.currency || 'INR',
-      country: setupData.country || 'IN',
-      onboarding_completed: 1,
-    });
+  const completeOnboarding = useCallback(
+    async (setupData: {
+      gymName: string;
+      themeColor: string;
+      startHour: string;
+      endHour: string;
+      ownerPin?: string;
+      language?: LanguageCode;
+      currency?: string;
+      country?: string;
+    }) => {
+      await updateGymSettings({
+        gym_name: setupData.gymName,
+        theme_color: setupData.themeColor,
+        working_hours_start: setupData.startHour,
+        working_hours_end: setupData.endHour,
+        onboarding_completed: 1,
+        language: setupData.language || 'en',
+        currency: setupData.currency || 'INR',
+        country: setupData.country || 'IN',
+      });
+      if (setupData.ownerPin) {
+        await dbSetOwnerPin(setupData.ownerPin);
+      }
+      await loadData();
+    },
+    [loadData]
+  );
 
-    if (setupData.ownerPin) {
-      await dbSetOwnerPin(setupData.ownerPin);
-    }
+  const showPaywall = useCallback(() => {
+    setPaywallVisible(true);
+  }, []);
 
-    const updated = await getGymSettings();
-    setSettings(updated);
-    setTheme(getTheme(updated.theme_color));
-    setCurrentDateStr(getFormattedDate((updated.language as LanguageCode) || 'en'));
-    await refreshSubscription();
-  };
+  const hidePaywall = useCallback(() => {
+    setPaywallVisible(false);
+  }, []);
+
+  const openAuthModal = useCallback(() => {
+    setAuthModalVisible(true);
+  }, []);
+
+  const closeAuthModal = useCallback(() => {
+    setAuthModalVisible(false);
+  }, []);
+
+  const subscribeToPlan = useCallback(
+    async (months: number = 1, plan: 'monthly' | 'yearly' = 'monthly') => {
+      await activateSubscription(months, plan);
+      await refreshSubscription();
+      hidePaywall();
+    },
+    [refreshSubscription, hidePaywall]
+  );
+
+  const applyLicenseKey = useCallback(
+    async (key: string) => {
+      const res = await verifyAndApplyLicenseKey(key);
+      if (res.success) {
+        await refreshSubscription();
+        hidePaywall();
+      }
+      return res;
+    },
+    [refreshSubscription, hidePaywall]
+  );
 
   return (
     <AppContext.Provider
@@ -407,11 +466,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         language: activeLang,
         currency: activeCurrency,
         country: activeCountry,
+        user,
+        isCloudAuthenticated: Boolean(user),
+        authModalVisible,
+        lastSyncedAt,
         t,
         formatPrice,
         formatDateStr,
         showPaywall,
         hidePaywall,
+        openAuthModal,
+        closeAuthModal,
+        checkAuthSession,
+        syncWithCloud,
         subscribeToPlan,
         applyLicenseKey,
         refreshAll,
@@ -431,6 +498,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       <SubscriptionPaywallModal
         visible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
+      />
+      <AuthModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
       />
     </AppContext.Provider>
   );

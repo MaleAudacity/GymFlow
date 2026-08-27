@@ -38,6 +38,8 @@ import {
   ChevronRight,
   Info,
   Gamepad2,
+  Cloud,
+  CloudUpload,
 } from 'lucide-react-native';
 import { useApp } from '../context/AppContext';
 import { NeoCard } from '../components/NeoCard';
@@ -94,6 +96,10 @@ export const SettingsScreen: React.FC = () => {
     t,
     formatPrice,
     showPaywall,
+    openAuthModal,
+    isCloudAuthenticated,
+    user,
+    lastSyncedAt,
     updateSettings,
     setOwnerPin,
     refreshAll,
@@ -435,6 +441,105 @@ export const SettingsScreen: React.FC = () => {
                 {subscription.status === 'active'
                   ? 'MANAGE PLAN'
                   : `UPGRADE • ${formatPrice(subscription.price)}/MO`}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </NeoCard>
+
+        {/* Cloud Sync & OAuth Account Card */}
+        <NeoCard
+          style={[
+            styles.subscriptionCard,
+            {
+              backgroundColor: isCloudAuthenticated ? '#DCFCE7' : '#EEF2FF',
+              borderColor: theme.border,
+            },
+          ]}
+          shadowOffset={3}
+        >
+          <View style={styles.subHeaderRow}>
+            <View style={styles.subLeft}>
+              <View
+                style={[
+                  styles.subIconCircle,
+                  {
+                    backgroundColor: isCloudAuthenticated ? '#15803D' : theme.primary,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                <Cloud
+                  size={20}
+                  color="#FFFFFF"
+                  strokeWidth={2.5}
+                />
+              </View>
+              <View style={styles.subTextCol}>
+                <Text
+                  style={[
+                    styles.subGymName,
+                    { color: theme.text, fontFamily: FONT_BLACK },
+                  ]}
+                >
+                  Supabase Cloud Sync
+                </Text>
+                <Text
+                  style={[
+                    styles.subStatusBadge,
+                    {
+                      color: isCloudAuthenticated ? '#15803D' : theme.primary,
+                      fontFamily: FONT_BOLD,
+                    },
+                  ]}
+                >
+                  {isCloudAuthenticated
+                    ? 'CONNECTED & BACKED UP'
+                    : 'OFFLINE / NOT CONNECTED'}
+                </Text>
+              </View>
+            </View>
+
+            <NeoBadge
+              label={isCloudAuthenticated ? 'SYNC ON' : 'CONNECT'}
+              variant={isCloudAuthenticated ? 'active' : 'primary'}
+              size="sm"
+            />
+          </View>
+
+          <View style={styles.subBody}>
+            <Text
+              style={[
+                styles.subValidity,
+                { color: theme.textMuted, fontFamily: FONT_REGULAR },
+              ]}
+            >
+              {isCloudAuthenticated && user
+                ? `Logged in as ${user.email}. Even if this app is deleted or you switch phones, all data is safe on Supabase.`
+                : 'Sign in or link Supabase so your member database, check-ins, and membership plans survive app uninstalls.'}
+            </Text>
+
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={openAuthModal}
+              style={[
+                styles.manageSubBtn,
+                {
+                  backgroundColor: isCloudAuthenticated ? '#15803D' : theme.primary,
+                  borderColor: theme.border,
+                },
+                neoShadow(2, theme.border),
+              ]}
+            >
+              <CloudUpload size={14} color="#FFFFFF" strokeWidth={2.5} />
+              <Text
+                style={[
+                  styles.manageSubBtnText,
+                  { fontFamily: FONT_BLACK },
+                ]}
+              >
+                {isCloudAuthenticated
+                  ? 'MANAGE CLOUD BACKUP'
+                  : 'LOGIN / LINK SUPABASE CLOUD'}
               </Text>
             </TouchableOpacity>
           </View>

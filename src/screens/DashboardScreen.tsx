@@ -200,6 +200,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           <View style={styles.headerRight}>
             <TouchableOpacity
               activeOpacity={0.8}
+              onPress={() => setTutorialVisible(true)}
+              style={[
+                styles.guideHeaderBtn,
+                { backgroundColor: theme.yellow, borderColor: theme.border },
+                neoShadow(1, theme.border),
+              ]}
+            >
+              <Gamepad2 size={13} color="#18181B" strokeWidth={2.5} />
+              <Text
+                style={[
+                  styles.guideHeaderBtnText,
+                  { color: '#18181B', fontFamily: FONT_BLACK },
+                ]}
+              >
+                GUIDE
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
               onPress={openAuthModal}
               style={[
                 styles.guideHeaderBtn,
@@ -221,75 +241,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setTutorialVisible(true)}
-              style={[
-                styles.guideHeaderBtn,
-                { backgroundColor: theme.yellow, borderColor: theme.border },
-                neoShadow(1, theme.border),
-              ]}
-            >
-              <Gamepad2 size={13} color="#18181B" strokeWidth={2.5} />
-              <Text
-                style={[
-                  styles.guideHeaderBtnText,
-                  { color: '#18181B', fontFamily: FONT_BLACK },
-                ]}
-              >
-                GUIDE
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={showPaywall}
-              style={[
-                styles.subPill,
-                {
-                  backgroundColor: subscription.isSubscribed
-                    ? subscription.status === 'active'
-                      ? '#DCFCE7'
-                      : '#FEF08A'
-                    : '#FEE2E2',
-                  borderColor: theme.border,
-                },
-                neoShadow(1, theme.border),
-              ]}
-            >
-              <Crown
-                size={12}
-                color={
-                  subscription.status === 'active'
-                    ? '#15803D'
-                    : subscription.status === 'trial'
-                    ? '#854D0E'
-                    : '#991B1B'
-                }
-                strokeWidth={2.5}
-              />
-              <Text
-                style={[
-                  styles.subPillText,
-                  {
-                    color:
-                      subscription.status === 'active'
-                        ? '#15803D'
-                        : subscription.status === 'trial'
-                        ? '#854D0E'
-                        : '#991B1B',
-                    fontFamily: FONT_BLACK,
-                  },
-                ]}
-              >
-                {subscription.status === 'active'
-                  ? 'PRO'
-                  : subscription.status === 'trial'
-                  ? `${subscription.daysLeft}D`
-                  : 'EXPIRED'}
-              </Text>
-            </TouchableOpacity>
-
             {hasOwnerPin && (
               <TouchableOpacity
                 activeOpacity={0.8}
@@ -300,10 +251,84 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                   neoShadow(1, theme.border),
                 ]}
               >
-                <Lock size={15} color={theme.text} strokeWidth={2.5} />
+                <Lock size={14} color={theme.text} strokeWidth={2.5} />
               </TouchableOpacity>
             )}
           </View>
+        </View>
+
+        {/* Status Strip Row: Pro & Cloud Status */}
+        <View style={styles.statusStripRow}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={showPaywall}
+            style={[
+              styles.statusStripPill,
+              {
+                backgroundColor: subscription.isSubscribed
+                  ? subscription.status === 'active'
+                    ? '#EEF2FF'
+                    : '#FEFCE8'
+                  : '#FEE2E2',
+                borderColor: theme.border,
+              },
+              neoShadow(1, theme.border),
+            ]}
+          >
+            <Crown
+              size={12}
+              color={
+                subscription.status === 'active'
+                  ? theme.primary
+                  : subscription.status === 'trial'
+                  ? '#CA8A04'
+                  : '#DC2626'
+              }
+              strokeWidth={2.5}
+            />
+            <Text
+              style={[
+                styles.statusStripText,
+                { color: theme.text, fontFamily: FONT_BOLD },
+              ]}
+              numberOfLines={1}
+            >
+              {subscription.status === 'active'
+                ? 'Pro Member'
+                : `Trial: ${subscription.daysLeft}d left`}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={openAuthModal}
+            style={[
+              styles.statusStripPill,
+              {
+                backgroundColor: isCloudAuthenticated ? '#DCFCE7' : '#F4F0E8',
+                borderColor: theme.border,
+              },
+              neoShadow(1, theme.border),
+            ]}
+          >
+            <Cloud
+              size={12}
+              color={isCloudAuthenticated ? '#15803D' : theme.textMuted}
+              strokeWidth={2.5}
+            />
+            <Text
+              style={[
+                styles.statusStripText,
+                {
+                  color: isCloudAuthenticated ? '#15803D' : theme.textMuted,
+                  fontFamily: FONT_BOLD,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {isCloudAuthenticated ? 'Supabase Sync Active' : 'Offline / Tap to Sync'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* 2. Hero Check-In & Action Hub */}
@@ -734,6 +759,27 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  statusStripRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+    width: '100%',
+  },
+  statusStripPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  statusStripText: {
+    fontSize: 11,
+    letterSpacing: 0.2,
   },
   heroCard: {
     padding: 16,

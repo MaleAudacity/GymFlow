@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import {
   Cloud,
-  CloudRain,
   CloudUpload,
   CloudDownload,
   X,
@@ -22,13 +21,17 @@ import {
   KeyRound,
   LogOut,
   CheckCircle2,
+  AlertCircle,
   Settings,
   Globe,
   Sparkles,
-  ArrowRight,
   ShieldCheck,
   RefreshCw,
+  Download,
+  Upload,
 } from 'lucide-react-native';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { useApp } from '../context/AppContext';
 import { NeoButton } from './NeoButton';
 import { NeoBadge } from './NeoBadge';
@@ -48,8 +51,11 @@ import {
   resetPasswordForEmail,
   getSupabaseConfig,
   setCustomSupabaseConfig,
+  isSupabaseConfigured,
+  testSupabaseConnection,
 } from '../services/supabase';
 import { backupToSupabase, restoreFromSupabase, getLastSyncTime } from '../services/syncService';
+import { exportAllDataJSON, importDataJSON } from '../database/db';
 
 interface AuthModalProps {
   visible: boolean;
@@ -65,7 +71,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     isCloudAuthenticated,
     refreshAll,
     settings,
-    updateSettings,
     checkAuthSession,
   } = useApp();
 
@@ -74,13 +79,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const [password, setPassword] = useState('');
   const [gymNameInput, setGymNameInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [lastSyncStr, setLastSyncStr] = useState<string | null>(null);
 
   // Custom Supabase Config state
   const [customUrl, setCustomUrl] = useState('');
   const [customAnonKey, setCustomAnonKey] = useState('');
-  const [isCustomConfig, setIsCustomConfig] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (visible) {
@@ -93,26 +98,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     const cfg = await getSupabaseConfig();
     setCustomUrl(cfg.url);
     setCustomAnonKey(cfg.anonKey);
-    setIsCustomConfig(cfg.isCustom);
+    const configured = await isSupabaseConfigured();
+    setIsConfigured(configured);
+    if (!configured && !isCloudAuthenticated) {
+      setActiveTab('config');
+    }
   };
 
   const fetchLastSync = async () => {
     const t = await getLastSyncTime();
     if (t) {
       const d = new Date(t);
-      setLastSyncStr(d.toLocaleTimeString() + ' (' + d.toLocaleDateString() + ')');
+      setLastSyncStr(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' (' + d.toLocaleDateString() + ')');
     } else {
-      setLastSyncStr('Never synced yet');
+      setLastSyncStr('Not synced yet');
     }
   };
 
   const handleSignIn = async () => {
+    if (!isConfigured) {
+      Alert.alert('Setup Required', 'Please connect your Supabase Project URL & Anon Key under the ⚙️ SETUP tab first.');
+      setActiveTab('config');
+      return;
+    }
     if (!email.trim() || !password.trim()) {
       Alert.alert('Required', 'Please enter your email and password.');
       return;
     }
     setIsProcessing(true);
-    setSyncMessage(null);
     try {
       await signInWithEmail(email, password);
       await checkAuthSession();
@@ -126,6 +139,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   };
 
   const handleSignUp = async () => {
+    if (!isConfigured) {
+      Alert.alert('Setup Required', 'Please connect your Supabase Project URL & Anon Key under the ⚙️ SETUP tab first.');
+      setActiveTab('config');
+      return;
+    }
     if (!email.trim() || !password.trim() || !gymNameInput.trim()) {
       Alert.alert('Required', 'Please fill in Gym Name, Email, and Password.');
       return;
@@ -140,7 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
       await checkAuthSession();
       Alert.alert(
         'Account Created! 🚀',
-        'Your GymFlow Cloud account is ready. Your local gym data will now be protected on Supabase.'
+        'Your GymFlow Cloud account is ready. Your local gym data will now be synced.'
       );
       fetchLastSync();
     } catch (err: any) {
@@ -151,13 +169,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   };
 
   const handleGoogleSignIn = async () => {
+    if (!isConfigured) {
+      Alert.alert('Setup Required', 'Please connect your Supabase Project URL & Anon Key under the ⚙️ SETUP tab first.');
+      setActiveTab('config');
+      return;
+    }
     setIsProcessing(true);
     try {
       const res = await signInWithGoogle();
       if (res.success) {
-        await checkAuthSession();
-        Alert.alert('Success 🎉', 'Signed in with Google OAuth!');
-        fetchLastSync();
+        Alert.alert('OAuth Launched', 'Complete login in your browser window.');
       } else if (res.error) {
         Alert.alert('Google Sign In', res.error);
       }
@@ -176,7 +197,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     setIsProcessing(true);
     try {
       await resetPasswordForEmail(email);
-      Alert.alert('Email Sent', 'Password reset instructions have been dispatched to ' + email);
+      Alert.alert('Email Sent', 'Password reset link sent to ' + email);
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Could not dispatch password reset email.');
     } finally {
@@ -187,7 +208,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
-      'Are you sure you want to sign out? Your offline local gym data will remain safe on this phone.',
+      'Sign out of Supabase Cloud? Your offline gym data on this phone is safe.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -197,7 +218,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             try {
               await signOutSupabase();
               await checkAuthSession();
-              Alert.alert('Signed Out', 'You have been disconnected from Supabase Cloud.');
+              Alert.alert('Signed Out', 'Disconnected from Supabase Cloud.');
             } catch (err: any) {
               Alert.alert('Error', err?.message || 'Sign out failed.');
             }
@@ -209,15 +230,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
 
   const handleBackupNow = async () => {
     setIsProcessing(true);
-    setSyncMessage('Uploading gym roster and attendance to Supabase...');
     try {
       const res = await backupToSupabase();
       if (res.success) {
-        setSyncMessage('✅ Backup successful!');
         fetchLastSync();
         Alert.alert(
           '☁️ Cloud Backup Complete',
-          `Backed up ${res.counts?.members ?? 0} members, ${res.counts?.plans ?? 0} plans, and ${res.counts?.attendance ?? 0} attendance logs to Supabase.`
+          `Successfully backed up ${res.counts?.members ?? 0} members, ${res.counts?.plans ?? 0} plans, and ${res.counts?.attendance ?? 0} attendance logs to Supabase.`
         );
       } else {
         Alert.alert('Backup Error', res.message);
@@ -232,14 +251,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const handleRestoreNow = async () => {
     Alert.alert(
       'Restore From Cloud',
-      'This will download and sync all members, plans, and attendance from Supabase to this phone. Continue?',
+      'This will sync all members, plans, and attendance from your Supabase cloud account to this phone. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Restore Now',
           onPress: async () => {
             setIsProcessing(true);
-            setSyncMessage('Restoring from Supabase cloud...');
             try {
               const res = await restoreFromSupabase();
               if (res.success) {
@@ -247,7 +265,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                 fetchLastSync();
                 Alert.alert(
                   '🎉 Restore Complete',
-                  `Restored ${res.counts?.members ?? 0} members and ${res.counts?.plans ?? 0} plans from your Supabase cloud account.`
+                  `Restored ${res.counts?.members ?? 0} members and ${res.counts?.plans ?? 0} plans from Supabase.`
                 );
               } else {
                 Alert.alert('Restore Error', res.message);
@@ -256,7 +274,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
               Alert.alert('Error', err?.message || 'Restore failed.');
             } finally {
               setIsProcessing(false);
-              setSyncMessage(null);
             }
           },
         },
@@ -264,22 +281,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     );
   };
 
+  const handleTestConnection = async () => {
+    if (!customUrl.trim() || !customAnonKey.trim()) {
+      Alert.alert('Required', 'Please enter both Supabase URL and Anon Key.');
+      return;
+    }
+    setIsProcessing(true);
+    setTestResult(null);
+    try {
+      const res = await testSupabaseConnection(customUrl, customAnonKey);
+      setTestResult(res);
+      if (res.ok) {
+        await setCustomSupabaseConfig(customUrl, customAnonKey);
+        setIsConfigured(true);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleSaveCustomConfig = async () => {
     if (!customUrl.trim() || !customAnonKey.trim()) {
-      Alert.alert('Required', 'Please provide both Supabase URL and Anon Key.');
+      Alert.alert('Required', 'Please enter both Supabase URL and Anon Key.');
       return;
     }
     setIsProcessing(true);
     try {
       const ok = await setCustomSupabaseConfig(customUrl, customAnonKey);
       if (ok) {
-        setIsCustomConfig(true);
-        Alert.alert('Saved', 'Supabase project credentials updated successfully!');
+        setIsConfigured(true);
+        Alert.alert('Saved! ✅', 'Supabase credentials saved. You can now Sign In or Sign Up.');
+        setActiveTab('signin');
       } else {
-        Alert.alert('Error', 'Failed to save Supabase configuration.');
+        Alert.alert('Error', 'Failed to save configuration.');
       }
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Local Offline 1-Tap Backup Fallback
+  const handleLocalBackup = async () => {
+    try {
+      const jsonData = await exportAllDataJSON();
+      const filename = `gymflow_backup_${Date.now()}.json`;
+      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, jsonData, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/json',
+          dialogTitle: 'Export GymFlow Backup File',
+        });
+      } else {
+        Alert.alert('Backup Created', `Saved to ${fileUri}`);
+      }
+    } catch (e: any) {
+      Alert.alert('Backup Error', e?.message || 'Could not export local backup.');
     }
   };
 
@@ -311,11 +371,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
               <View
                 style={[
                   styles.cloudIconCircle,
-                  { backgroundColor: '#DCFCE7', borderColor: theme.border },
+                  {
+                    backgroundColor: isCloudAuthenticated ? '#DCFCE7' : '#EEF2FF',
+                    borderColor: theme.border,
+                  },
                   neoShadow(3, theme.border),
                 ]}
               >
-                <Cloud size={30} color="#15803D" strokeWidth={2.5} />
+                <Cloud
+                  size={28}
+                  color={isCloudAuthenticated ? '#15803D' : theme.primary}
+                  strokeWidth={2.5}
+                />
               </View>
             </View>
 
@@ -324,8 +391,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             </Text>
             <Text style={[styles.subtitle, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
               {isCloudAuthenticated
-                ? 'Your local gym data is securely backed up and ready to restore anytime.'
-                : 'Sign in to ensure your members, plans & check-ins are safe even if the app is deleted.'}
+                ? 'Your local gym data is safely backed up and ready to restore on any device.'
+                : 'Connect your Supabase project so your members & check-ins are safe even if the app is deleted.'}
             </Text>
 
             {/* LOGGED IN VIEW */}
@@ -400,9 +467,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                       <ActivityIndicator color="#FFFFFF" size="small" />
                     ) : (
                       <>
-                        <CloudUpload size={20} color="#FFFFFF" strokeWidth={2.5} />
+                        <CloudUpload size={18} color="#FFFFFF" strokeWidth={2.5} />
                         <Text style={[styles.actionBigBtnText, { fontFamily: FONT_BLACK }]}>
-                          BACKUP LOCAL DATA TO SUPABASE
+                          BACKUP DATA TO SUPABASE
                         </Text>
                       </>
                     )}
@@ -420,7 +487,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                   >
                     <CloudDownload size={18} color="#18181B" strokeWidth={2.5} />
                     <Text style={[styles.actionOutlineBtnText, { fontFamily: FONT_BOLD }]}>
-                      RESTORE DATA FROM CLOUD TO PHONE
+                      RESTORE FROM CLOUD TO PHONE
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -440,6 +507,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             ) : (
               /* LOGGED OUT / AUTH FORM */
               <View style={styles.authFormContainer}>
+                {/* Setup notice if not configured */}
+                {!isConfigured && activeTab !== 'config' && (
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => setActiveTab('config')}
+                    style={[styles.noticeBanner, { backgroundColor: '#FEF3C7', borderColor: '#D97706' }]}
+                  >
+                    <AlertCircle size={16} color="#D97706" />
+                    <Text style={[styles.noticeText, { color: '#92400E', fontFamily: FONT_BOLD }]}>
+                      Tap here to connect your Supabase Project URL & Key
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
                 {/* Tab Switcher */}
                 <View
                   style={[
@@ -491,7 +572,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         },
                       ]}
                     >
-                      CREATE ACCOUNT
+                      SIGN UP
                     </Text>
                   </TouchableOpacity>
 
@@ -501,7 +582,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                     style={[
                       styles.tabItem,
                       activeTab === 'config' && {
-                        backgroundColor: theme.yellow,
+                        backgroundColor: isConfigured ? '#DCFCE7' : theme.yellow,
                         borderColor: theme.border,
                       },
                     ]}
@@ -515,7 +596,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         },
                       ]}
                     >
-                      ⚙️ CONFIG
+                      {isConfigured ? '⚙️ SETUP ✅' : '⚙️ SETUP'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -619,7 +700,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         neoShadow(2, theme.border),
                       ]}
                     >
-                      <Globe size={18} color="#EA4335" strokeWidth={2.5} />
+                      <Globe size={16} color="#EA4335" strokeWidth={2.5} />
                       <Text
                         style={[
                           styles.googleOAuthBtnText,
@@ -676,7 +757,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                     </View>
 
                     <Text style={[styles.inputLabel, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                      PASSWORD (MIN 6 CHARACTERS):
+                      PASSWORD:
                     </Text>
                     <View
                       style={[
@@ -703,7 +784,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         styles.primaryActionBtn,
                         { backgroundColor: theme.yellow, borderColor: theme.border },
                         neoShadow(3, theme.border),
-                        { marginTop: 14 },
+                        { marginTop: 8 },
                       ]}
                     >
                       {isProcessing ? (
@@ -715,7 +796,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                             { color: '#18181B', fontFamily: FONT_BLACK },
                           ]}
                         >
-                          CREATE OWNER ACCOUNT & START SYNC
+                          CREATE CLOUD ACCOUNT & SYNC
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -731,12 +812,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         { color: theme.textMuted, fontFamily: FONT_REGULAR },
                       ]}
                     >
-                      Connect your own self-hosted or managed Supabase project. Enter your Project
-                      URL and Public Anon Key below:
+                      Paste your Supabase credentials from{' '}
+                      <Text style={{ fontFamily: FONT_BOLD, color: theme.text }}>supabase.com</Text>{' '}
+                      (Project Settings → API):
                     </Text>
 
                     <Text style={[styles.inputLabel, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                      SUPABASE PROJECT URL:
+                      PROJECT URL:
                     </Text>
                     <View
                       style={[
@@ -746,7 +828,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                     >
                       <Globe size={16} color={theme.textMuted} />
                       <TextInput
-                        placeholder="https://xyz.supabase.co"
+                        placeholder="https://xyzcompany.supabase.co"
                         placeholderTextColor="#9CA3AF"
                         value={customUrl}
                         onChangeText={setCustomUrl}
@@ -756,7 +838,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                     </View>
 
                     <Text style={[styles.inputLabel, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                      SUPABASE ANON KEY:
+                      ANON / PUBLIC API KEY:
                     </Text>
                     <View
                       style={[
@@ -766,7 +848,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                     >
                       <KeyRound size={16} color={theme.textMuted} />
                       <TextInput
-                        placeholder="eyJhbGciOi..."
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI..."
                         placeholderTextColor="#9CA3AF"
                         value={customAnonKey}
                         onChangeText={setCustomAnonKey}
@@ -775,31 +857,98 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                       />
                     </View>
 
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={handleSaveCustomConfig}
-                      disabled={isProcessing}
-                      style={[
-                        styles.primaryActionBtn,
-                        {
-                          backgroundColor: theme.primary,
-                          borderColor: theme.border,
-                          marginTop: 12,
-                        },
-                        neoShadow(3, theme.border),
-                      ]}
-                    >
-                      <Text style={[styles.primaryActionBtnText, { fontFamily: FONT_BLACK }]}>
-                        SAVE SUPABASE CONFIGURATION
-                      </Text>
-                    </TouchableOpacity>
+                    {testResult && (
+                      <View
+                        style={[
+                          styles.testResultBox,
+                          {
+                            backgroundColor: testResult.ok ? '#DCFCE7' : '#FEE2E2',
+                            borderColor: testResult.ok ? '#15803D' : '#DC2626',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.testResultText,
+                            { color: testResult.ok ? '#15803D' : '#DC2626', fontFamily: FONT_BOLD },
+                          ]}
+                        >
+                          {testResult.message}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={styles.configActionRow}>
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={handleTestConnection}
+                        disabled={isProcessing}
+                        style={[
+                          styles.testBtn,
+                          { backgroundColor: theme.surface, borderColor: theme.border },
+                          neoShadow(2, theme.border),
+                        ]}
+                      >
+                        <Text style={[styles.testBtnText, { color: theme.text, fontFamily: FONT_BOLD }]}>
+                          ⚡ Test Connection
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={handleSaveCustomConfig}
+                        disabled={isProcessing}
+                        style={[
+                          styles.saveConfigBtn,
+                          { backgroundColor: theme.primary, borderColor: theme.border },
+                          neoShadow(2, theme.border),
+                        ]}
+                      >
+                        <Text style={[styles.saveConfigBtnText, { fontFamily: FONT_BLACK }]}>
+                          Save & Connect
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 )}
               </View>
             )}
 
+            {/* Offline 1-Tap Backup Safety Box */}
+            <View
+              style={[
+                styles.offlineCard,
+                { backgroundColor: theme.surfaceSubtle, borderColor: theme.border },
+                neoShadow(1, theme.border),
+              ]}
+            >
+              <View style={styles.offlineCardLeft}>
+                <Download size={16} color={theme.text} strokeWidth={2.5} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.offlineTitle, { color: theme.text, fontFamily: FONT_BOLD }]}>
+                    Instant Local Device Backup
+                  </Text>
+                  <Text style={[styles.offlineSub, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
+                    Export full JSON spreadsheet backup to your phone files anytime.
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleLocalBackup}
+                style={[
+                  styles.localExportBtn,
+                  { backgroundColor: theme.surface, borderColor: theme.border },
+                ]}
+              >
+                <Text style={[styles.localExportText, { color: theme.text, fontFamily: FONT_BOLD }]}>
+                  Export JSON
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={[styles.guaranteeNote, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
-              🔒 100% Encrypted Cloud Storage • Local SQLite Cache First
+              🔒 100% Offline SQLite First • Cloud Backup Protection
             </Text>
           </ScrollView>
         </View>
@@ -843,27 +992,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerIconWrapper: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
   cloudIconCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },
   mainTitle: {
-    fontSize: 22,
+    fontSize: 20,
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 11,
     textAlign: 'center',
-    marginTop: 3,
-    marginBottom: 14,
-    lineHeight: 15,
-    paddingHorizontal: 8,
+    marginTop: 2,
+    marginBottom: 12,
+    lineHeight: 14,
+    paddingHorizontal: 6,
+  },
+  noticeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 12,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 10,
+    lineHeight: 13,
   },
   profileSection: {
     width: '100%',
@@ -874,7 +1037,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 14,
     padding: 12,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   accountHeader: {
     flexDirection: 'row',
@@ -882,27 +1045,27 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   avatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
   },
   accountEmail: {
-    fontSize: 13,
+    fontSize: 12,
   },
   accountGymName: {
-    fontSize: 11,
+    fontSize: 10,
     marginTop: 1,
   },
   syncDivider: {
     height: 1,
-    marginVertical: 10,
+    marginVertical: 8,
   },
   syncMetaRow: {
     flexDirection: 'row',
@@ -914,8 +1077,8 @@ const styles = StyleSheet.create({
   },
   cloudActionCol: {
     width: '100%',
-    gap: 10,
-    marginBottom: 14,
+    gap: 8,
+    marginBottom: 12,
   },
   actionBigBtn: {
     width: '100%',
@@ -929,7 +1092,7 @@ const styles = StyleSheet.create({
   },
   actionBigBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     letterSpacing: 0.4,
   },
   actionOutlineBtn: {
@@ -937,21 +1100,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 12,
     borderWidth: 2,
     gap: 8,
   },
   actionOutlineBtnText: {
     color: '#18181B',
-    fontSize: 12,
+    fontSize: 11,
   },
   signOutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 6,
-    marginBottom: 8,
+    paddingVertical: 4,
+    marginBottom: 6,
   },
   signOutText: {
     color: '#DC2626',
@@ -965,7 +1128,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 12,
     padding: 3,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   tabItem: {
     flex: 1,
@@ -982,7 +1145,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   inputLabel: {
-    fontSize: 10,
+    fontSize: 9,
     letterSpacing: 0.5,
     marginBottom: 4,
   },
@@ -993,17 +1156,17 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 10,
+    paddingVertical: 7,
+    marginBottom: 8,
   },
   textInput: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 11,
     padding: 0,
   },
   forgotPassBtn: {
     alignSelf: 'flex-end',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   forgotPassText: {
     fontSize: 10,
@@ -1013,19 +1176,19 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 12,
     borderWidth: 2,
   },
   primaryActionBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     letterSpacing: 0.5,
   },
   orDividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 12,
+    marginVertical: 10,
     gap: 8,
   },
   orLine: {
@@ -1040,22 +1203,94 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderRadius: 12,
     borderWidth: 1.5,
-    gap: 8,
-    marginBottom: 10,
+    gap: 6,
+    marginBottom: 8,
   },
   googleOAuthBtnText: {
-    fontSize: 12,
+    fontSize: 11,
   },
   configHelpText: {
     fontSize: 10,
     lineHeight: 14,
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  testResultBox: {
+    borderWidth: 1.5,
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 10,
+  },
+  testResultText: {
+    fontSize: 10,
+    textAlign: 'center',
+  },
+  configActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  testBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  testBtnText: {
+    fontSize: 10,
+  },
+  saveConfigBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 2,
+  },
+  saveConfigBtnText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    letterSpacing: 0.3,
+  },
+  offlineCard: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    gap: 8,
+  },
+  offlineCardLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  offlineTitle: {
+    fontSize: 11,
+  },
+  offlineSub: {
+    fontSize: 9,
+    marginTop: 1,
+  },
+  localExportBtn: {
+    borderWidth: 1.5,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  localExportText: {
+    fontSize: 10,
   },
   guaranteeNote: {
-    fontSize: 10,
+    fontSize: 9,
     textAlign: 'center',
     marginTop: 6,
   },

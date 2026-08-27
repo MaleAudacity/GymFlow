@@ -31,14 +31,68 @@ const SecureStorageAdapter = {
   },
 };
 
-// Default Supabase project endpoints
-export const DEFAULT_SUPABASE_URL = 'https://gymflow-cloud.supabase.co';
-export const DEFAULT_SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5bWZsb3ctY2xvdWQiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTY4MDAwMDAwMCwiZXhwIjoxOTk1NTU1NTU1fQ.gymflow_demo_anon_key';
+export const DEFAULT_SUPABASE_URL = 'https://YOUR_PROJECT.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 let supabaseClient: SupabaseClient | null = null;
 let currentSupabaseUrl = DEFAULT_SUPABASE_URL;
 let currentSupabaseAnonKey = DEFAULT_SUPABASE_ANON_KEY;
+
+/**
+ * Check if the user has configured custom Supabase credentials
+ */
+export const isSupabaseConfigured = async (): Promise<boolean> => {
+  try {
+    const savedUrl = await SecureStore.getItemAsync(STORAGE_KEY_URL);
+    const savedKey = await SecureStore.getItemAsync(STORAGE_KEY_ANON_KEY);
+    return Boolean(
+      savedUrl &&
+        savedKey &&
+        !savedUrl.includes('YOUR_PROJECT') &&
+        !savedUrl.includes('gymflow-cloud')
+    );
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Test a Supabase endpoint connection
+ */
+export const testSupabaseConnection = async (
+  url: string,
+  anonKey: string
+): Promise<{ ok: boolean; message: string }> => {
+  try {
+    const cleanUrl = url.trim().replace(/\/+$/, '');
+    const cleanKey = anonKey.trim();
+
+    if (!cleanUrl || !cleanKey) {
+      return { ok: false, message: 'Please enter both Supabase URL and Anon Key.' };
+    }
+
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      return { ok: false, message: 'URL must begin with https://' };
+    }
+
+    const testClient = createClient(cleanUrl, cleanKey, {
+      auth: {
+        storage: SecureStorageAdapter,
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    const { error } = await testClient.auth.getSession();
+    if (error && error.message.includes('fetch')) {
+      return { ok: false, message: 'Could not reach Supabase endpoint. Check the URL.' };
+    }
+
+    return { ok: true, message: 'Successfully connected to your Supabase project! 🚀' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Connection test failed.' };
+  }
+};
 
 /**
  * Initialize and retrieve the Supabase client
@@ -114,15 +168,22 @@ export const getSupabaseConfig = async (): Promise<{
     const savedUrl = await SecureStore.getItemAsync(STORAGE_KEY_URL);
     const savedKey = await SecureStore.getItemAsync(STORAGE_KEY_ANON_KEY);
 
+    const isCustom = Boolean(
+      savedUrl &&
+        savedKey &&
+        !savedUrl.includes('YOUR_PROJECT') &&
+        !savedUrl.includes('gymflow-cloud')
+    );
+
     return {
-      url: savedUrl || DEFAULT_SUPABASE_URL,
-      anonKey: savedKey || DEFAULT_SUPABASE_ANON_KEY,
-      isCustom: Boolean(savedUrl && savedKey),
+      url: savedUrl || '',
+      anonKey: savedKey || '',
+      isCustom,
     };
   } catch {
     return {
-      url: DEFAULT_SUPABASE_URL,
-      anonKey: DEFAULT_SUPABASE_ANON_KEY,
+      url: '',
+      anonKey: '',
       isCustom: false,
     };
   }
@@ -136,6 +197,13 @@ export const signUpWithEmail = async (
   pass: string,
   gymName: string
 ) => {
+  const configured = await isSupabaseConfigured();
+  if (!configured) {
+    throw new Error(
+      'Please enter your Supabase Project URL & Anon Key under the ⚙️ SUPABASE SETUP tab first.'
+    );
+  }
+
   const client = await getSupabaseClient();
   const { data, error } = await client.auth.signUp({
     email: email.trim(),
@@ -155,6 +223,13 @@ export const signUpWithEmail = async (
  * Sign in with Email and Password
  */
 export const signInWithEmail = async (email: string, pass: string) => {
+  const configured = await isSupabaseConfigured();
+  if (!configured) {
+    throw new Error(
+      'Please enter your Supabase Project URL & Anon Key under the ⚙️ SUPABASE SETUP tab first.'
+    );
+  }
+
   const client = await getSupabaseClient();
   const { data, error } = await client.auth.signInWithPassword({
     email: email.trim(),
@@ -166,7 +241,7 @@ export const signInWithEmail = async (email: string, pass: string) => {
 };
 
 /**
- * Sign in with Google OAuth (Opens OAuth Consent URL in Default Browser)
+ * Sign in with Google OAuth
  */
 export const signInWithGoogle = async (): Promise<{
   success: boolean;
@@ -174,6 +249,15 @@ export const signInWithGoogle = async (): Promise<{
   error?: string;
 }> => {
   try {
+    const configured = await isSupabaseConfigured();
+    if (!configured) {
+      return {
+        success: false,
+        error:
+          'Please enter your Supabase Project URL & Anon Key under the ⚙️ SUPABASE SETUP tab first.',
+      };
+    }
+
     const client = await getSupabaseClient();
     const { data, error } = await client.auth.signInWithOAuth({
       provider: 'google',

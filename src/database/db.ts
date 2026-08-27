@@ -126,6 +126,16 @@ export const initDatabase = async (): Promise<void> => {
     );
   }
 
+  // Ensure standard plans exist so member registration always succeeds
+  const plansCount = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM plans');
+  if (!plansCount || plansCount.count === 0) {
+    await db.runAsync(
+      `INSERT INTO plans (name, price, duration_days) VALUES 
+       ('Monthly Standard', 1000, 30),
+       ('Quarterly Fitness', 2500, 90),
+       ('Annual VIP', 8000, 365)`
+    );
+  }
 };
 
 export const clearAllDataAndStartFresh = async (): Promise<void> => {
@@ -135,6 +145,10 @@ export const clearAllDataAndStartFresh = async (): Promise<void> => {
     DELETE FROM members;
     DELETE FROM plans;
     DELETE FROM sqlite_sequence WHERE name IN ('members', 'attendance', 'plans');
+    INSERT INTO plans (name, price, duration_days) VALUES 
+      ('Monthly Standard', 1000, 30),
+      ('Quarterly Fitness', 2500, 90),
+      ('Annual VIP', 8000, 365);
   `);
 };
 
@@ -476,6 +490,28 @@ export const addMember = async (member: {
   active?: number;
 }): Promise<number> => {
   const db = await getDB();
+
+  // Guard against foreign key violation if plan does not exist
+  let validPlanId = member.plan_id;
+  const existingPlan = await db.getFirstAsync<{ id: number }>(
+    'SELECT id FROM plans WHERE id = ?',
+    validPlanId
+  );
+  if (!existingPlan) {
+    const anyPlan = await db.getFirstAsync<{ id: number }>('SELECT id FROM plans ORDER BY id ASC LIMIT 1');
+    if (anyPlan) {
+      validPlanId = anyPlan.id;
+    } else {
+      const resPlan = await db.runAsync(
+        'INSERT INTO plans (name, price, duration_days) VALUES (?, ?, ?)',
+        'Monthly Standard',
+        1000,
+        30
+      );
+      validPlanId = resPlan.lastInsertRowId;
+    }
+  }
+
   const qrPayload = member.qr_payload || `GYMFLOW:MEMBER:${member.pin_code}:${Date.now()}`;
   const res = await db.runAsync(
     `INSERT INTO members (name, phone, photo_uri, plan_id, join_date, fee_status, pin_code, qr_payload, active)
@@ -483,7 +519,7 @@ export const addMember = async (member: {
     member.name.trim(),
     member.phone.trim(),
     member.photo_uri,
-    member.plan_id,
+    validPlanId,
     member.join_date,
     member.fee_status,
     member.pin_code.trim(),
@@ -508,6 +544,20 @@ export const updateMember = async (
   }>
 ): Promise<void> => {
   const db = await getDB();
+
+  if (member.plan_id) {
+    const existingPlan = await db.getFirstAsync<{ id: number }>(
+      'SELECT id FROM plans WHERE id = ?',
+      member.plan_id
+    );
+    if (!existingPlan) {
+      const anyPlan = await db.getFirstAsync<{ id: number }>('SELECT id FROM plans ORDER BY id ASC LIMIT 1');
+      if (anyPlan) {
+        member.plan_id = anyPlan.id;
+      }
+    }
+  }
+
   const keys = Object.keys(member).filter((k) => k !== 'id');
   if (keys.length === 0) return;
 

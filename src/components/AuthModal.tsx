@@ -18,22 +18,16 @@ import {
   Lock,
   Mail,
   Building,
-  KeyRound,
   LogOut,
   CheckCircle2,
-  AlertCircle,
-  Settings,
   Globe,
   Sparkles,
-  ShieldCheck,
   RefreshCw,
   Download,
-  Upload,
 } from 'lucide-react-native';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { useApp } from '../context/AppContext';
-import { NeoButton } from './NeoButton';
 import { NeoBadge } from './NeoBadge';
 import {
   neoShadow,
@@ -49,20 +43,16 @@ import {
   signInWithGoogle,
   signOutSupabase,
   resetPasswordForEmail,
-  getSupabaseConfig,
-  setCustomSupabaseConfig,
-  isSupabaseConfigured,
-  testSupabaseConnection,
 } from '../services/supabase';
 import { backupToSupabase, restoreFromSupabase, getLastSyncTime } from '../services/syncService';
-import { exportAllDataJSON, importDataJSON } from '../database/db';
+import { exportAllDataJSON } from '../database/db';
 
 interface AuthModalProps {
   visible: boolean;
   onClose: () => void;
 }
 
-type TabType = 'signin' | 'signup' | 'config';
+type TabType = 'signin' | 'signup';
 
 export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const {
@@ -81,46 +71,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastSyncStr, setLastSyncStr] = useState<string | null>(null);
 
-  // Custom Supabase Config state
-  const [customUrl, setCustomUrl] = useState('');
-  const [customAnonKey, setCustomAnonKey] = useState('');
-  const [isConfigured, setIsConfigured] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-
   useEffect(() => {
     if (visible) {
-      loadConfig();
       fetchLastSync();
     }
   }, [visible, isCloudAuthenticated]);
-
-  const loadConfig = async () => {
-    const cfg = await getSupabaseConfig();
-    setCustomUrl(cfg.url);
-    setCustomAnonKey(cfg.anonKey);
-    const configured = await isSupabaseConfigured();
-    setIsConfigured(configured);
-    if (!configured && !isCloudAuthenticated) {
-      setActiveTab('config');
-    }
-  };
 
   const fetchLastSync = async () => {
     const t = await getLastSyncTime();
     if (t) {
       const d = new Date(t);
-      setLastSyncStr(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' (' + d.toLocaleDateString() + ')');
+      setLastSyncStr(
+        d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) +
+          ' (' +
+          d.toLocaleDateString() +
+          ')'
+      );
     } else {
       setLastSyncStr('Not synced yet');
     }
   };
 
   const handleSignIn = async () => {
-    if (!isConfigured) {
-      Alert.alert('Setup Required', 'Please connect your Supabase Project URL & Anon Key under the ⚙️ SETUP tab first.');
-      setActiveTab('config');
-      return;
-    }
     if (!email.trim() || !password.trim()) {
       Alert.alert('Required', 'Please enter your email and password.');
       return;
@@ -139,11 +111,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   };
 
   const handleSignUp = async () => {
-    if (!isConfigured) {
-      Alert.alert('Setup Required', 'Please connect your Supabase Project URL & Anon Key under the ⚙️ SETUP tab first.');
-      setActiveTab('config');
-      return;
-    }
     if (!email.trim() || !password.trim() || !gymNameInput.trim()) {
       Alert.alert('Required', 'Please fill in Gym Name, Email, and Password.');
       return;
@@ -158,7 +125,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
       await checkAuthSession();
       Alert.alert(
         'Account Created! 🚀',
-        'Your GymFlow Cloud account is ready. Your local gym data will now be synced.'
+        'Your GymFlow Cloud account is ready. Your local gym data is now synced to Supabase.'
       );
       fetchLastSync();
     } catch (err: any) {
@@ -169,11 +136,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   };
 
   const handleGoogleSignIn = async () => {
-    if (!isConfigured) {
-      Alert.alert('Setup Required', 'Please connect your Supabase Project URL & Anon Key under the ⚙️ SETUP tab first.');
-      setActiveTab('config');
-      return;
-    }
     setIsProcessing(true);
     try {
       const res = await signInWithGoogle();
@@ -281,46 +243,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     );
   };
 
-  const handleTestConnection = async () => {
-    if (!customUrl.trim() || !customAnonKey.trim()) {
-      Alert.alert('Required', 'Please enter both Supabase URL and Anon Key.');
-      return;
-    }
-    setIsProcessing(true);
-    setTestResult(null);
-    try {
-      const res = await testSupabaseConnection(customUrl, customAnonKey);
-      setTestResult(res);
-      if (res.ok) {
-        await setCustomSupabaseConfig(customUrl, customAnonKey);
-        setIsConfigured(true);
-      }
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleSaveCustomConfig = async () => {
-    if (!customUrl.trim() || !customAnonKey.trim()) {
-      Alert.alert('Required', 'Please enter both Supabase URL and Anon Key.');
-      return;
-    }
-    setIsProcessing(true);
-    try {
-      const ok = await setCustomSupabaseConfig(customUrl, customAnonKey);
-      if (ok) {
-        setIsConfigured(true);
-        Alert.alert('Saved! ✅', 'Supabase credentials saved. You can now Sign In or Sign Up.');
-        setActiveTab('signin');
-      } else {
-        Alert.alert('Error', 'Failed to save configuration.');
-      }
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Local Offline 1-Tap Backup Fallback
+  // Local Offline Backup Fallback
   const handleLocalBackup = async () => {
     try {
       const jsonData = await exportAllDataJSON();
@@ -391,8 +314,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             </Text>
             <Text style={[styles.subtitle, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
               {isCloudAuthenticated
-                ? 'Your local gym data is safely backed up and ready to restore on any device.'
-                : 'Connect your Supabase project so your members & check-ins are safe even if the app is deleted.'}
+                ? 'Your local gym data is safely backed up to Supabase and ready to restore anytime.'
+                : 'Sign in so your members, check-ins & plans survive even if this app is deleted.'}
             </Text>
 
             {/* LOGGED IN VIEW */}
@@ -507,20 +430,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             ) : (
               /* LOGGED OUT / AUTH FORM */
               <View style={styles.authFormContainer}>
-                {/* Setup notice if not configured */}
-                {!isConfigured && activeTab !== 'config' && (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={() => setActiveTab('config')}
-                    style={[styles.noticeBanner, { backgroundColor: '#FEF3C7', borderColor: '#D97706' }]}
-                  >
-                    <AlertCircle size={16} color="#D97706" />
-                    <Text style={[styles.noticeText, { color: '#92400E', fontFamily: FONT_BOLD }]}>
-                      Tap here to connect your Supabase Project URL & Key
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
                 {/* Tab Switcher */}
                 <View
                   style={[
@@ -572,31 +481,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         },
                       ]}
                     >
-                      SIGN UP
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setActiveTab('config')}
-                    style={[
-                      styles.tabItem,
-                      activeTab === 'config' && {
-                        backgroundColor: isConfigured ? '#DCFCE7' : theme.yellow,
-                        borderColor: theme.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        {
-                          color: activeTab === 'config' ? '#18181B' : theme.textMuted,
-                          fontFamily: FONT_BOLD,
-                        },
-                      ]}
-                    >
-                      {isConfigured ? '⚙️ SETUP ✅' : '⚙️ SETUP'}
+                      CREATE ACCOUNT
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -757,7 +642,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                     </View>
 
                     <Text style={[styles.inputLabel, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                      PASSWORD:
+                      PASSWORD (MIN 6 CHARS):
                     </Text>
                     <View
                       style={[
@@ -796,119 +681,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                             { color: '#18181B', fontFamily: FONT_BLACK },
                           ]}
                         >
-                          CREATE CLOUD ACCOUNT & SYNC
+                          CREATE ACCOUNT & START CLOUD SYNC
                         </Text>
                       )}
                     </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* CONFIG TAB */}
-                {activeTab === 'config' && (
-                  <View style={styles.tabContent}>
-                    <Text
-                      style={[
-                        styles.configHelpText,
-                        { color: theme.textMuted, fontFamily: FONT_REGULAR },
-                      ]}
-                    >
-                      Paste your Supabase credentials from{' '}
-                      <Text style={{ fontFamily: FONT_BOLD, color: theme.text }}>supabase.com</Text>{' '}
-                      (Project Settings → API):
-                    </Text>
-
-                    <Text style={[styles.inputLabel, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                      PROJECT URL:
-                    </Text>
-                    <View
-                      style={[
-                        styles.inputWrapper,
-                        { backgroundColor: theme.surface, borderColor: theme.border },
-                      ]}
-                    >
-                      <Globe size={16} color={theme.textMuted} />
-                      <TextInput
-                        placeholder="https://xyzcompany.supabase.co"
-                        placeholderTextColor="#9CA3AF"
-                        value={customUrl}
-                        onChangeText={setCustomUrl}
-                        autoCapitalize="none"
-                        style={[styles.textInput, { color: theme.text }]}
-                      />
-                    </View>
-
-                    <Text style={[styles.inputLabel, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                      ANON / PUBLIC API KEY:
-                    </Text>
-                    <View
-                      style={[
-                        styles.inputWrapper,
-                        { backgroundColor: theme.surface, borderColor: theme.border },
-                      ]}
-                    >
-                      <KeyRound size={16} color={theme.textMuted} />
-                      <TextInput
-                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI..."
-                        placeholderTextColor="#9CA3AF"
-                        value={customAnonKey}
-                        onChangeText={setCustomAnonKey}
-                        autoCapitalize="none"
-                        style={[styles.textInput, { color: theme.text }]}
-                      />
-                    </View>
-
-                    {testResult && (
-                      <View
-                        style={[
-                          styles.testResultBox,
-                          {
-                            backgroundColor: testResult.ok ? '#DCFCE7' : '#FEE2E2',
-                            borderColor: testResult.ok ? '#15803D' : '#DC2626',
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.testResultText,
-                            { color: testResult.ok ? '#15803D' : '#DC2626', fontFamily: FONT_BOLD },
-                          ]}
-                        >
-                          {testResult.message}
-                        </Text>
-                      </View>
-                    )}
-
-                    <View style={styles.configActionRow}>
-                      <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={handleTestConnection}
-                        disabled={isProcessing}
-                        style={[
-                          styles.testBtn,
-                          { backgroundColor: theme.surface, borderColor: theme.border },
-                          neoShadow(2, theme.border),
-                        ]}
-                      >
-                        <Text style={[styles.testBtnText, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                          ⚡ Test Connection
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={handleSaveCustomConfig}
-                        disabled={isProcessing}
-                        style={[
-                          styles.saveConfigBtn,
-                          { backgroundColor: theme.primary, borderColor: theme.border },
-                          neoShadow(2, theme.border),
-                        ]}
-                      >
-                        <Text style={[styles.saveConfigBtnText, { fontFamily: FONT_BLACK }]}>
-                          Save & Connect
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
                   </View>
                 )}
               </View>
@@ -926,10 +702,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                 <Download size={16} color={theme.text} strokeWidth={2.5} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.offlineTitle, { color: theme.text, fontFamily: FONT_BOLD }]}>
-                    Instant Local Device Backup
+                    Local Device Backup (JSON)
                   </Text>
                   <Text style={[styles.offlineSub, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
-                    Export full JSON spreadsheet backup to your phone files anytime.
+                    Export full spreadsheet backup to your phone files anytime.
                   </Text>
                 </View>
               </View>
@@ -948,7 +724,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             </View>
 
             <Text style={[styles.guaranteeNote, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
-              🔒 100% Offline SQLite First • Cloud Backup Protection
+              🔒 100% Offline SQLite First • Live Supabase Protection
             </Text>
           </ScrollView>
         </View>
@@ -1013,20 +789,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     lineHeight: 14,
     paddingHorizontal: 6,
-  },
-  noticeBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1.5,
-    borderRadius: 10,
-    padding: 8,
-    marginBottom: 12,
-  },
-  noticeText: {
-    flex: 1,
-    fontSize: 10,
-    lineHeight: 13,
   },
   profileSection: {
     width: '100%',
@@ -1211,49 +973,6 @@ const styles = StyleSheet.create({
   },
   googleOAuthBtnText: {
     fontSize: 11,
-  },
-  configHelpText: {
-    fontSize: 10,
-    lineHeight: 14,
-    marginBottom: 10,
-  },
-  testResultBox: {
-    borderWidth: 1.5,
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 10,
-  },
-  testResultText: {
-    fontSize: 10,
-    textAlign: 'center',
-  },
-  configActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  testBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1.5,
-  },
-  testBtnText: {
-    fontSize: 10,
-  },
-  saveConfigBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 2,
-  },
-  saveConfigBtnText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    letterSpacing: 0.3,
   },
   offlineCard: {
     width: '100%',

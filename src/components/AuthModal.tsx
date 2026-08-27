@@ -102,10 +102,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     try {
       await signInWithEmail(email, password);
       await checkAuthSession();
-      // Auto-trigger backup upon sign in
-      backupToSupabase().catch(() => {});
+      // Auto-restore cloud data upon sign in
+      const res = await restoreFromSupabase();
+      await refreshAll();
       fetchLastSync();
-      Alert.alert('Welcome Back! 🎉', 'You are now signed in. Your gym data is connected to your cloud account.');
+      Alert.alert(
+        'Welcome Back! 🎉',
+        res.hasCloudData
+          ? `You are signed in! Restored ${res.counts?.members ?? 0} members and ${res.counts?.plans ?? 0} plans from your cloud.`
+          : 'You are now signed in to GymFlow Cloud.'
+      );
     } catch (err: any) {
       Alert.alert('Sign In Failed', err?.message || 'Invalid email or password.');
     } finally {

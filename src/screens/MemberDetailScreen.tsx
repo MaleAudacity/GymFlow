@@ -45,6 +45,7 @@ import {
   getMemberAttendanceHistory,
   formatAttendanceDateTime,
 } from '../database/db';
+import { syncMemberToCloud, deleteMemberFromCloud } from '../services/syncService';
 import { Member, Attendance } from '../types';
 import { neoShadow, FONT_FAMILY, FONT_BOLD, FONT_BLACK, FONT_EXTRABOLD, FONT_REGULAR, FONT_SEMIBOLD } from '../theme';
 
@@ -91,6 +92,7 @@ export const MemberDetailScreen: React.FC<MemberDetailScreenProps> = ({
   const handleToggleFeeStatus = async (newStatus: 'paid' | 'due' | 'overdue') => {
     if (!member) return;
     await updateMember(member.id, { fee_status: newStatus });
+    syncMemberToCloud(member.id).catch(() => {});
     await refreshMembers();
     await loadMember();
   };
@@ -100,6 +102,7 @@ export const MemberDetailScreen: React.FC<MemberDetailScreenProps> = ({
     // Set join_date to today for fresh cycle
     const today = new Date().toISOString().split('T')[0];
     await updateMember(member.id, { join_date: today, fee_status: 'paid', active: 1 });
+    syncMemberToCloud(member.id).catch(() => {});
     await refreshMembers();
     await loadMember();
     Alert.alert(t('mem_renew_membership'), `${member.name}'s plan has been renewed starting today.`);
@@ -108,6 +111,7 @@ export const MemberDetailScreen: React.FC<MemberDetailScreenProps> = ({
   const handleToggleActive = async () => {
     if (!member) return;
     const nextActive = await toggleMemberActive(member.id, member.active);
+    syncMemberToCloud(member.id).catch(() => {});
     await refreshMembers();
     await loadMember();
     Alert.alert(
@@ -127,6 +131,7 @@ export const MemberDetailScreen: React.FC<MemberDetailScreenProps> = ({
           text: t('common_delete'),
           style: 'destructive',
           onPress: async () => {
+            deleteMemberFromCloud(member.id).catch(() => {});
             await deleteMember(member.id);
             await refreshMembers();
             navigation.goBack();

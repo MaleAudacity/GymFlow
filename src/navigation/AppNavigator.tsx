@@ -19,6 +19,7 @@ import { MemberDetailScreen } from '../screens/MemberDetailScreen';
 import { AddEditMemberScreen } from '../screens/AddEditMemberScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { AuthScreen } from '../screens/AuthScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { AppLockModal } from '../components/AppLockModal';
 import { neoShadow, FONT_FAMILY, FONT_EXTRABOLD, FONT_BOLD } from '../theme';
@@ -130,8 +131,10 @@ export function AppNavigator() {
     <>
       <NavigationContainer>
         {settings.onboarding_completed === 0 ? (
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Auth">
+            <Stack.Screen name="Auth" component={AuthScreen} />
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+            <Stack.Screen name="MainTabs" component={MainTabNavigator} />
           </Stack.Navigator>
         ) : (
           <Stack.Navigator screenOptions={{ headerShown: false }}>

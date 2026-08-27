@@ -20,6 +20,8 @@ import { neoShadow, THEME_PRESETS, FONT_FAMILY, FONT_BOLD, FONT_BLACK, FONT_EXTR
 
 const APP_LOGO = require('../../assets/gymflow_logo.png');
 
+import { backupToSupabase } from '../services/syncService';
+
 interface OnboardingScreenProps {
   onComplete?: () => void;
 }
@@ -70,6 +72,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         endHour,
         ownerPin: ownerPin.trim() || undefined,
       });
+
+      // Auto-backup to cloud if account is connected
+      backupToSupabase().catch(() => {});
+
       if (onComplete) {
         onComplete();
       }

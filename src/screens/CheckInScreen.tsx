@@ -26,6 +26,7 @@ import { CheckInResultModal } from '../components/CheckInResultModal';
 import { NeoCard } from '../components/NeoCard';
 import { NeoBadge } from '../components/NeoBadge';
 import { getMemberByPin, getMemberByQR, recordCheckIn } from '../database/db';
+import { syncAttendanceToCloud } from '../services/syncService';
 import { Member } from '../types';
 import {
   neoShadow,
@@ -77,6 +78,9 @@ export const CheckInScreen: React.FC<CheckInScreenProps> = ({
       }
 
       const res = await recordCheckIn(member.id, 'pin');
+      if (res.success && res.attendanceId) {
+        syncAttendanceToCloud(res.attendanceId).catch(() => {});
+      }
       await refreshAttendance();
 
       setModalResult({
@@ -116,6 +120,9 @@ export const CheckInScreen: React.FC<CheckInScreenProps> = ({
       }
 
       const res = await recordCheckIn(member.id, 'qr');
+      if (res.success && res.attendanceId) {
+        syncAttendanceToCloud(res.attendanceId).catch(() => {});
+      }
       await refreshAttendance();
 
       setModalResult({

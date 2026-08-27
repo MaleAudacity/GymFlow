@@ -34,6 +34,7 @@ import {
   getMemberById,
   generateUniquePin,
 } from '../database/db';
+import { syncMemberToCloud } from '../services/syncService';
 import { Member, Plan } from '../types';
 import { neoShadow, FONT_FAMILY, FONT_BOLD, FONT_BLACK, FONT_EXTRABOLD, FONT_REGULAR } from '../theme';
 
@@ -147,8 +148,9 @@ export const AddEditMemberScreen: React.FC<AddEditMemberScreenProps> = ({
           pin_code: pinCode.trim(),
           qr_payload: `GYMFLOW:MEMBER:${pinCode.trim()}`,
         });
+        syncMemberToCloud(memberId).catch(() => {});
       } else {
-        await addMember({
+        const newMemberId = await addMember({
           name: name.trim(),
           phone: phone.trim(),
           photo_uri: photoUri,
@@ -159,6 +161,7 @@ export const AddEditMemberScreen: React.FC<AddEditMemberScreenProps> = ({
           qr_payload: `GYMFLOW:MEMBER:${pinCode.trim()}:${Date.now()}`,
           active: 1,
         });
+        syncMemberToCloud(newMemberId).catch(() => {});
       }
 
       await refreshMembers();

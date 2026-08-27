@@ -801,8 +801,8 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     color: '#FFFFFF',
-    fontSize: 17,
-    letterSpacing: -0.3,
+    fontSize: 14,
+    letterSpacing: -0.2,
   },
   heroSubtitle: {
     color: 'rgba(255, 255, 255, 0.85)',

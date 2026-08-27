@@ -24,6 +24,7 @@ import {
   Sparkles,
   RefreshCw,
   Download,
+  ShieldCheck,
 } from 'lucide-react-native';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
@@ -101,8 +102,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     try {
       await signInWithEmail(email, password);
       await checkAuthSession();
-      Alert.alert('Welcome Back! 🎉', 'You are now signed in to GymFlow Cloud.');
+      // Auto-trigger backup upon sign in
+      backupToSupabase().catch(() => {});
       fetchLastSync();
+      Alert.alert('Welcome Back! 🎉', 'You are now signed in. Your gym data is connected to your cloud account.');
     } catch (err: any) {
       Alert.alert('Sign In Failed', err?.message || 'Invalid email or password.');
     } finally {
@@ -112,7 +115,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
 
   const handleSignUp = async () => {
     if (!email.trim() || !password.trim() || !gymNameInput.trim()) {
-      Alert.alert('Required', 'Please fill in Gym Name, Email, and Password.');
+      Alert.alert('Required', 'Please fill in your Gym Name, Email, and Password.');
       return;
     }
     if (password.length < 6) {
@@ -121,13 +124,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     }
     setIsProcessing(true);
     try {
-      await signUpWithEmail(email, password, gymNameInput.trim());
-      await checkAuthSession();
-      Alert.alert(
-        'Account Created! 🚀',
-        'Your GymFlow Cloud account is ready. Your local gym data is now synced to Supabase.'
-      );
-      fetchLastSync();
+      const res = await signUpWithEmail(email, password, gymNameInput.trim());
+      if (res.needsEmailConfirmation) {
+        Alert.alert(
+          'Account Created! ✉️',
+          'A confirmation email was sent to ' +
+            email +
+            '. Please check your inbox and confirm your email, then Sign In to start cloud backup.'
+        );
+        setActiveTab('signin');
+      } else {
+        await checkAuthSession();
+        // Auto-backup local records to new account
+        await backupToSupabase();
+        fetchLastSync();
+        Alert.alert(
+          'Account Created! 🚀',
+          'Your GymFlow Owner Account is active! All your members, plans, and attendance are now backed up to your cloud.'
+        );
+      }
     } catch (err: any) {
       Alert.alert('Sign Up Failed', err?.message || 'Could not create account.');
     } finally {
@@ -145,7 +160,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
         Alert.alert('Google Sign In', res.error);
       }
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Failed to authenticate with Google.');
+      Alert.alert('Notice', 'Please use Email & Password to sign in to your GymFlow Owner Account.');
     } finally {
       setIsProcessing(false);
     }
@@ -170,7 +185,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
-      'Sign out of Supabase Cloud? Your offline gym data on this phone is safe.',
+      'Sign out of your GymFlow Account? Your offline records on this phone will remain 100% safe.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -180,7 +195,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             try {
               await signOutSupabase();
               await checkAuthSession();
-              Alert.alert('Signed Out', 'Disconnected from Supabase Cloud.');
+              Alert.alert('Signed Out', 'You have been signed out of your GymFlow Cloud Account.');
             } catch (err: any) {
               Alert.alert('Error', err?.message || 'Sign out failed.');
             }
@@ -198,10 +213,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
         fetchLastSync();
         Alert.alert(
           '☁️ Cloud Backup Complete',
-          `Successfully backed up ${res.counts?.members ?? 0} members, ${res.counts?.plans ?? 0} plans, and ${res.counts?.attendance ?? 0} attendance logs to Supabase.`
+          `Successfully saved ${res.counts?.members ?? 0} members, ${res.counts?.plans ?? 0} plans, and ${res.counts?.attendance ?? 0} check-in logs to your cloud account.`
         );
       } else {
-        Alert.alert('Backup Error', res.message);
+        Alert.alert('Backup Notice', res.message);
       }
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Backup failed.');
@@ -213,7 +228,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const handleRestoreNow = async () => {
     Alert.alert(
       'Restore From Cloud',
-      'This will sync all members, plans, and attendance from your Supabase cloud account to this phone. Continue?',
+      'This will download all members, plans, and check-in history from your GymFlow Cloud account to this phone. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -227,10 +242,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                 fetchLastSync();
                 Alert.alert(
                   '🎉 Restore Complete',
-                  `Restored ${res.counts?.members ?? 0} members and ${res.counts?.plans ?? 0} plans from Supabase.`
+                  `Restored ${res.counts?.members ?? 0} members and ${res.counts?.plans ?? 0} plans from your cloud account.`
                 );
               } else {
-                Alert.alert('Restore Error', res.message);
+                Alert.alert('Restore Notice', res.message);
               }
             } catch (err: any) {
               Alert.alert('Error', err?.message || 'Restore failed.');
@@ -310,12 +325,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             </View>
 
             <Text style={[styles.mainTitle, { color: theme.text, fontFamily: FONT_BLACK }]}>
-              {isCloudAuthenticated ? 'Supabase Cloud Active' : 'Supabase Cloud Sync'}
+              {isCloudAuthenticated ? 'GymFlow Cloud Active' : 'GymFlow Cloud Backup'}
             </Text>
             <Text style={[styles.subtitle, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
               {isCloudAuthenticated
-                ? 'Your local gym data is safely backed up to Supabase and ready to restore anytime.'
-                : 'Sign in so your members, check-ins & plans survive even if this app is deleted.'}
+                ? 'Your members, check-ins & plans are protected in the cloud and ready to restore on any phone.'
+                : 'Sign in to your GymFlow Owner Account so your gym data is never lost even if the app is deleted.'}
             </Text>
 
             {/* LOGGED IN VIEW */}
@@ -353,7 +368,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                           { color: theme.textMuted, fontFamily: FONT_REGULAR },
                         ]}
                       >
-                        {settings.gym_name || 'GymFlow Owner'}
+                        {settings.gym_name || 'Gym Owner'}
                       </Text>
                     </View>
                     <NeoBadge label="ONLINE" variant="active" size="sm" />
@@ -392,7 +407,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                       <>
                         <CloudUpload size={18} color="#FFFFFF" strokeWidth={2.5} />
                         <Text style={[styles.actionBigBtnText, { fontFamily: FONT_BLACK }]}>
-                          BACKUP DATA TO SUPABASE
+                          BACKUP DATA TO CLOUD
                         </Text>
                       </>
                     )}
@@ -410,7 +425,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                   >
                     <CloudDownload size={18} color="#18181B" strokeWidth={2.5} />
                     <Text style={[styles.actionOutlineBtnText, { fontFamily: FONT_BOLD }]}>
-                      RESTORE FROM CLOUD TO PHONE
+                      RESTORE DATA TO THIS PHONE
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -423,7 +438,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                 >
                   <LogOut size={15} color="#DC2626" />
                   <Text style={[styles.signOutText, { fontFamily: FONT_BOLD }]}>
-                    Sign Out of Supabase
+                    Sign Out of GymFlow Account
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -559,41 +574,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         <ActivityIndicator color="#FFFFFF" size="small" />
                       ) : (
                         <Text style={[styles.primaryActionBtnText, { fontFamily: FONT_BLACK }]}>
-                          SIGN IN WITH EMAIL
+                          SIGN IN TO GYMFLOW
                         </Text>
                       )}
-                    </TouchableOpacity>
-
-                    <View style={styles.orDividerRow}>
-                      <View style={[styles.orLine, { backgroundColor: theme.border }]} />
-                      <Text
-                        style={[styles.orText, { color: theme.textMuted, fontFamily: FONT_BOLD }]}
-                      >
-                        OR
-                      </Text>
-                      <View style={[styles.orLine, { backgroundColor: theme.border }]} />
-                    </View>
-
-                    {/* Google OAuth */}
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={handleGoogleSignIn}
-                      disabled={isProcessing}
-                      style={[
-                        styles.googleOAuthBtn,
-                        { backgroundColor: theme.surface, borderColor: theme.border },
-                        neoShadow(2, theme.border),
-                      ]}
-                    >
-                      <Globe size={16} color="#EA4335" strokeWidth={2.5} />
-                      <Text
-                        style={[
-                          styles.googleOAuthBtnText,
-                          { color: theme.text, fontFamily: FONT_BOLD },
-                        ]}
-                      >
-                        Continue with Google
-                      </Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -681,7 +664,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                             { color: '#18181B', fontFamily: FONT_BLACK },
                           ]}
                         >
-                          CREATE ACCOUNT & START CLOUD SYNC
+                          CREATE OWNER ACCOUNT & START SYNC
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -724,7 +707,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
             </View>
 
             <Text style={[styles.guaranteeNote, { color: theme.textMuted, fontFamily: FONT_REGULAR }]}>
-              🔒 100% Offline SQLite First • Live Supabase Protection
+              🔒 100% Private & Encrypted • Automatic Cloud Backup Protection
             </Text>
           </ScrollView>
         </View>
@@ -946,33 +929,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     letterSpacing: 0.5,
-  },
-  orDividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 10,
-    gap: 8,
-  },
-  orLine: {
-    flex: 1,
-    height: 1,
-  },
-  orText: {
-    fontSize: 10,
-  },
-  googleOAuthBtn: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    gap: 6,
-    marginBottom: 8,
-  },
-  googleOAuthBtnText: {
-    fontSize: 11,
   },
   offlineCard: {
     width: '100%',

@@ -107,7 +107,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
 
               <Text style={[styles.sectionHeading, { color: theme.primary }]}>1. Overview & Data Philosophy</Text>
               <Text style={[styles.paragraph, { color: theme.text }]}>
-                GymFlow is built on an offline-first architecture. Your gym's member records, attendance logs, subscription plans, and financial reports are stored locally on your device in an encrypted SQLite database. We do not sell, rent, or monetize your gym's data.
+                GymFlow is built on an offline-first architecture. Your gym's member records, attendance logs, subscription plans, and financial reports are stored locally on your device with hardware-backed encryption. We do not sell, rent, or monetize your gym's data.
               </Text>
 
               <Text style={[styles.sectionHeading, { color: theme.primary }]}>2. Information We Handle</Text>

@@ -172,7 +172,7 @@ const MISSIONS: TutorialMission[] = [
       },
       {
         btnName: '💾 EXPORT BACKUP',
-        actionDesc: 'Exports 100% offline encrypted SQLite backup files to your device.',
+        actionDesc: 'Exports complete encrypted backup files to your device storage.',
       },
     ],
     proTip: '💡 Pro Tip: Tap the header Lock icon anytime to seal GymFlow instantly.',

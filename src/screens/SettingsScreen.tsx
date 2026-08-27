@@ -481,7 +481,7 @@ export const SettingsScreen: React.FC = () => {
                     { color: theme.text, fontFamily: FONT_BLACK },
                   ]}
                 >
-                  Supabase Cloud Sync
+                  GymFlow Cloud Backup
                 </Text>
                 <Text
                   style={[
@@ -514,8 +514,8 @@ export const SettingsScreen: React.FC = () => {
               ]}
             >
               {isCloudAuthenticated && user
-                ? `Logged in as ${user.email}. Even if this app is deleted or you switch phones, all data is safe on Supabase.`
-                : 'Sign in or link Supabase so your member database, check-ins, and membership plans survive app uninstalls.'}
+                ? `Logged in as ${user.email}. Even if this app is deleted or you switch phones, all data is safe in your cloud account.`
+                : 'Sign in to your GymFlow Owner Account so your members, attendance, and plans survive app uninstalls.'}
             </Text>
 
             <TouchableOpacity
@@ -539,7 +539,7 @@ export const SettingsScreen: React.FC = () => {
               >
                 {isCloudAuthenticated
                   ? 'MANAGE CLOUD BACKUP'
-                  : 'LOGIN / LINK SUPABASE CLOUD'}
+                  : 'SIGN IN / BACKUP TO CLOUD'}
               </Text>
             </TouchableOpacity>
           </View>

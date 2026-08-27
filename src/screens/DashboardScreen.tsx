@@ -326,7 +326,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               ]}
               numberOfLines={1}
             >
-              {isCloudAuthenticated ? 'Supabase Sync Active' : 'Offline / Tap to Sync'}
+              {isCloudAuthenticated ? 'Cloud Backup Active' : 'Backup to Cloud (Save Data)'}
             </Text>
           </TouchableOpacity>
         </View>

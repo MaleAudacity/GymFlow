@@ -6,7 +6,7 @@ import { Linking } from 'react-native';
 const STORAGE_KEY_URL = 'gymflow_supabase_url';
 const STORAGE_KEY_ANON_KEY = 'gymflow_supabase_anon_key';
 
-// Hardware-backed SecureStore Adapter for Supabase Session Persistence
+// Hardware-backed SecureStore Adapter for Session Persistence
 const SecureStorageAdapter = {
   getItem: async (key: string): Promise<string | null> => {
     try {
@@ -31,21 +31,12 @@ const SecureStorageAdapter = {
   },
 };
 
-// Baked-in Supabase Project Credentials
+// Embedded GymFlow Cloud Backend
 export const DEFAULT_SUPABASE_URL = 'https://ezfonvssjqimqlythuly.supabase.co';
 export const DEFAULT_SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6Zm9udnNzanFpbXFseXRodWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MzQxMjAsImV4cCI6MjEwMzQxMDEyMH0.ssxGKWGbQTyVzke-iNw1kAbMwvrDYgaP_LYMRpBnG2M';
 
 let supabaseClient: SupabaseClient | null = null;
-let currentSupabaseUrl = DEFAULT_SUPABASE_URL;
-let currentSupabaseAnonKey = DEFAULT_SUPABASE_ANON_KEY;
-
-/**
- * Check if Supabase is configured (always true with baked-in project)
- */
-export const isSupabaseConfigured = async (): Promise<boolean> => {
-  return true;
-};
 
 /**
  * Initialize and retrieve the Supabase client
@@ -66,61 +57,13 @@ export const getSupabaseClient = async (): Promise<SupabaseClient> => {
 };
 
 /**
- * Update custom Supabase URL and Anon Key (optional override)
- */
-export const setCustomSupabaseConfig = async (
-  url: string,
-  anonKey: string
-): Promise<boolean> => {
-  try {
-    const cleanUrl = url.trim().replace(/\/+$/, '') || DEFAULT_SUPABASE_URL;
-    const cleanKey = anonKey.trim() || DEFAULT_SUPABASE_ANON_KEY;
-
-    await SecureStore.setItemAsync(STORAGE_KEY_URL, cleanUrl);
-    await SecureStore.setItemAsync(STORAGE_KEY_ANON_KEY, cleanKey);
-
-    currentSupabaseUrl = cleanUrl;
-    currentSupabaseAnonKey = cleanKey;
-
-    supabaseClient = createClient(cleanUrl, cleanKey, {
-      auth: {
-        storage: SecureStorageAdapter,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-    });
-
-    return true;
-  } catch (err) {
-    console.error('Failed to configure Supabase client:', err);
-    return false;
-  }
-};
-
-/**
- * Get current configured Supabase credentials
- */
-export const getSupabaseConfig = async (): Promise<{
-  url: string;
-  anonKey: string;
-  isCustom: boolean;
-}> => {
-  return {
-    url: DEFAULT_SUPABASE_URL,
-    anonKey: DEFAULT_SUPABASE_ANON_KEY,
-    isCustom: true,
-  };
-};
-
-/**
- * Sign up with Email and Password
+ * Sign up with Email and Password for GymFlow Owner Account
  */
 export const signUpWithEmail = async (
   email: string,
   pass: string,
   gymName: string
-) => {
+): Promise<{ user: User | null; session: Session | null; needsEmailConfirmation: boolean }> => {
   const client = await getSupabaseClient();
   const { data, error } = await client.auth.signUp({
     email: email.trim(),
@@ -133,7 +76,30 @@ export const signUpWithEmail = async (
   });
 
   if (error) throw error;
-  return data;
+
+  const needsEmailConfirmation = !data.session;
+
+  // If auto-confirmed session exists, create profile record
+  if (data.session && data.user) {
+    try {
+      await client.from('gym_profiles').upsert(
+        {
+          id: data.user.id,
+          gym_name: gymName.trim(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    } catch (e) {
+      console.warn('Initial profile creation note:', e);
+    }
+  }
+
+  return {
+    user: data.user,
+    session: data.session,
+    needsEmailConfirmation,
+  };
 };
 
 /**
@@ -146,7 +112,15 @@ export const signInWithEmail = async (email: string, pass: string) => {
     password: pass,
   });
 
-  if (error) throw error;
+  if (error) {
+    if (error.message.toLowerCase().includes('email not confirmed')) {
+      throw new Error(
+        'Please check your email inbox to confirm your account, or disable "Confirm email" in Supabase Auth settings.'
+      );
+    }
+    throw error;
+  }
+
   return data;
 };
 
@@ -177,9 +151,17 @@ export const signInWithGoogle = async (): Promise<{
       }
     }
 
-    return { success: false, error: 'Could not open browser for Google authentication.' };
+    return {
+      success: false,
+      error: 'Google Sign-In is not enabled yet in your Supabase Auth Providers.',
+    };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Google OAuth Sign-In failed.' };
+    return {
+      success: false,
+      error:
+        err?.message ||
+        'Google Sign-In requires configuring Google Client ID in Supabase Auth dashboard.',
+    };
   }
 };
 
